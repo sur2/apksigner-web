@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>ApkSigner - 드래그 앤 드롭 지원</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; background-color: #f0f2f5; }
+        .app-container { max-width: 650px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .section { margin-bottom: 20px; padding: 15px; border-left: 5px solid #3498db; background: #fafafa; border-radius: 0 8px 8px 0; }
+        h2 { margin-top: 0; color: #1a73e8; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        
+        /* 드래그 앤 드롭 스타일 */
+        #drop-zone {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background-color: #f8fbff;
+            color: #3498db;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 15px;
+        }
+        #drop-zone.dragover {
+            background-color: #e3f2fd;
+            border-color: #1a73e8;
+            transform: scale(1.02);
+        }
+        #file-name {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 15px; transition: 0.2s; }
+        .btn-primary { background-color: #1a73e8; color: white; margin-top: 10px; }
+        .btn-secondary { background-color: #5f6368; color: white; margin-bottom: 10px; }
+        .btn:hover { opacity: 0.9; }
+        #status { margin-top: 20px; padding: 15px; border-radius: 8px; font-size: 14px; display: none; }
+        #apkFile { display: none; } /* 실제 input은 숨김 */
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <h2>ApkSigner Pro</h2>
+    
+    <div class="section">
+        <label>환경 설정 (최근 값 자동 저장)</label>
+        <input type="text" id="apksignerPath" placeholder="apksigner.bat 경로">
+        <input type="text" id="ksPath" placeholder="Keystore 파일 경로">
+        <input type="password" id="ksPass" placeholder="Keystore 비밀번호">
+        <button class="btn btn-secondary" onclick="saveToLocal()">⚙️ 설정값 저장</button>
+    </div>
+
+    <div class="section" style="border-left-color: #2ecc71;">
+        <label>대상 APK 파일</label>
+        
+        <div id="drop-zone" onclick="document.getElementById('apkFile').click()">
+            <div id="drop-text">파일을 이곳에 드래그하거나 클릭하여 선택하세요.</div>
+            <div id="file-name"></div>
+        </div>
+        <input type="file" id="apkFile" accept=".apk">
+        
+        <button class="btn btn-primary" onclick="startProcess()">🚀 서명 시작 및 다운로드</button>
+    </div>
+
+    <div id="status"></div>
+</div>
+
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('apkFile');
+    const fileNameDisplay = document.getElementById('file-name');
+    let selectedFile = null;
+
+    // 1. 초기 로드 및 설정 불러오기
+    window.onload = () => {
+        const savedData = JSON.parse(localStorage.getItem('apkSignerSettings') || '{}');
+        if (savedData.apksignerPath) document.getElementById('apksignerPath').value = savedData.apksignerPath;
+        if (savedData.ksPath) document.getElementById('ksPath').value = savedData.ksPath;
+        if (savedData.ksPass) document.getElementById('ksPass').value = savedData.ksPass;
+    };
+
+    // 2. 드래그 앤 드롭 이벤트 처리
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFileSelection(files[0]);
+        }
+    });
+
+    // 클릭으로 파일 선택 시
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFileSelection(e.target.files[0]);
+        }
+    });
+
+    function handleFileSelection(file) {
+        if (!file.name.endsWith('.apk')) {
+            alert("APK 파일만 업로드 가능합니다.");
+            return;
+        }
+        selectedFile = file;
+        fileNameDisplay.innerText = "선택된 파일: " + file.name;
+        document.getElementById('drop-text').innerText = "파일 교체하려면 다시 드래그하거나 클릭하세요.";
+    }
+
+    function saveToLocal() {
+        const settings = {
+            apksignerPath: document.getElementById('apksignerPath').value,
+            ksPath: document.getElementById('ksPath').value,
+            ksPass: document.getElementById('ksPass').value
+        };
+        localStorage.setItem('apkSignerSettings', JSON.stringify(settings));
+        alert("설정이 저장되었습니다.");
+        return settings;
+    }
+
+    async function startProcess() {
+        const settings = saveToLocal();
+        const statusDiv = document.getElementById('status');
+
+        if (!settings.apksignerPath || !settings.ksPath || !settings.ksPass || !selectedFile) {
+            alert("모든 설정과 파일을 확인해주세요.");
+            return;
+        }
+
+        statusDiv.style.display = "block";
+        statusDiv.style.background = "#e8f0fe";
+        statusDiv.innerText = "상태 확인 중...";
+
+        try {
+            const formData = new FormData();
+            formData.append('apk', selectedFile); // 선택된 파일 추가
+            formData.append('apksignerPath', settings.apksignerPath);
+
+            const checkRes = await fetch('/api/upload-and-check', { method: 'POST', body: formData });
+            const checkData = await checkRes.json();
+
+            if (checkData.isSigned) {
+                if (!confirm("이미 서명된 apk 입니다. 계속 진행하시겠습니까?")) {
+                    statusDiv.innerText = "작업 취소됨.";
+                    return;
+                }
+            }
+
+            statusDiv.innerText = "v2 서명 및 패키징 중...";
+            const signRes = await fetch('/api/sign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...settings, filename: checkData.filename })
+            });
+
+            if (!signRes.ok) throw new Error("서명 실패");
+
+            const blob = await signRes.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "signed_" + selectedFile.name;
+            a.click();
+
+            statusDiv.style.background = "#e6ffed";
+            statusDiv.innerText = "✅ 서명 완료! 다운로드가 시작되었습니다.";
+        } catch (err) {
+            statusDiv.style.background = "#ffeef0";
+            statusDiv.innerText = "❌ 오류: " + err.message;
+        }
+    }
+</script>
+</body>
+</html>
